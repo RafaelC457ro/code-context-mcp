@@ -1,0 +1,36 @@
+{
+  "name": "code-context-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for semantic code search and dependency graph analysis",
+  "type": "module",
+  "main": "dist/mcp/server.js",
+  "bin": {
+    "code-context-mcp": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/mcp/server.js",
+    "index": "node dist/cli/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.config.integration.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "commander": "^14.0.3",
+    "pg": "^8.13.0",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-c": "^0.21.4",
+    "tree-sitter-rust": "^0.21.0",
+    "tree-sitter-solidity": "^1.2.11",
+    "tree-sitter-typescript": "^0.23.2",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.18"
+  }
+}

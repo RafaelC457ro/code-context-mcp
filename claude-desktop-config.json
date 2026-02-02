@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "code-context": {
+      "command": "node",
+      "args": ["dist/mcp/server.js"],
+      "cwd": "/path/to/code-context-mcp",
+      "env": {
+        "PGHOST": "localhost",
+        "PGPORT": "5433",
+        "PGDATABASE": "rag_db",
+        "PGUSER": "postgres",
+        "PGPASSWORD": "postgres",
+        "OLLAMA_URL": "http://localhost:11434"
+      }
+    }
+  }
+}
