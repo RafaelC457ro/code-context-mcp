@@ -4,9 +4,12 @@ MCP server for semantic code search and dependency graph analysis. Indexes codeb
 
 ## Supported Languages
 
-- **TypeScript** (`.ts`, `.tsx`) — functions, classes, types, interfaces, imports
-- **Rust** (`.rs`) — functions, structs, enums, traits, impl blocks, modules, use declarations
-- **Solidity** (`.sol`) — contracts, functions, events, modifiers, structs, enums, interfaces, imports
+| Language | Extensions | Extracted Nodes | Relationships |
+|----------|-----------|-----------------|---------------|
+| TypeScript | `.ts`, `.tsx`, `.js`, `.jsx` | functions, classes, types, interfaces, imports | CALLS, IMPORTS, EXTENDS, USES |
+| Rust | `.rs` | functions, structs, enums, traits, impl blocks, modules | CALLS, IMPORTS, IMPLEMENTS |
+| Solidity | `.sol` | contracts, functions, events, modifiers, structs, enums, interfaces | CALLS, IMPORTS, EXTENDS |
+| C | `.c`, `.h` | functions, structs, enums, typedefs | CALLS, IMPORTS |
 
 ## Prerequisites
 
@@ -50,7 +53,7 @@ code-context-mcp index /path/to/backend --project backend
 ```
 
 The indexer will:
-1. Parse all supported source files (TypeScript, Rust, Solidity) using tree-sitter
+1. Parse all supported source files (TypeScript, Rust, Solidity, C) using tree-sitter
 2. Build a code graph with functions, classes, types, contracts, traits, and their relationships
 3. Generate vector embeddings for semantic search via Ollama
 4. Show a progress bar during indexing
