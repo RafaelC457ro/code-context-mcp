@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { setup } from '../db/schema.js';
 import { searchByEmbedding, listProjects } from '../db/queries.js';
+import { searchGitCommits } from '../db/git-queries.js';
 import { generateEmbedding } from '../embeddings/ollama.js';
 import { findNodeByName, findNodesByFile, enrichSearchResults, getCallStack, getCallers, getCallees, getUsedTypes, getReverseImpact } from '../graph/operations.js';
 
@@ -175,6 +176,34 @@ server.tool(
           definedNodes: nodesInFile.map(n => ({ name: n.name, kind: n.kind })),
           affectedFiles: Object.fromEntries(byFile),
         }, null, 2),
+      }],
+    };
+  }
+);
+
+server.tool(
+  'search_git_history',
+  'Semantic search across indexed git commit history. Finds commits by meaning of their messages and changes.',
+  {
+    query: z.string().describe('Natural language search query (e.g. "fix authentication bug")'),
+    limit: z.number().optional().default(10).describe('Maximum number of results to return'),
+    project: z.string().optional().describe('Project name to scope the search to. Omit to search all projects.'),
+  },
+  async ({ query, limit, project }) => {
+    const queryEmbedding = await generateEmbedding(query);
+    const hits = await searchGitCommits(queryEmbedding, limit, project);
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify(hits.map(h => ({
+          commitHash: h.commitHash,
+          author: h.author,
+          date: h.date,
+          message: h.message,
+          filesChanged: JSON.parse(h.filesChanged),
+          score: h.score.toFixed(4),
+        })), null, 2),
       }],
     };
   }

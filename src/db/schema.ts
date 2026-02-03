@@ -89,7 +89,36 @@ export async function setupGraph(): Promise<void> {
   }
 }
 
+export async function setupGitSchema(): Promise<void> {
+  const pool = getPool();
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.git_commits (
+      id SERIAL PRIMARY KEY,
+      commit_hash TEXT NOT NULL,
+      project TEXT NOT NULL DEFAULT '',
+      author TEXT NOT NULL,
+      date TIMESTAMP WITH TIME ZONE NOT NULL,
+      message TEXT NOT NULL,
+      files_changed TEXT NOT NULL DEFAULT '[]',
+      diff_summary TEXT NOT NULL DEFAULT '',
+      embedding vector(768),
+      UNIQUE(project, commit_hash)
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_git_commits_vector ON public.git_commits
+    USING hnsw (embedding vector_cosine_ops);
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_git_commits_project ON public.git_commits (project);
+  `);
+}
+
 export async function setup(): Promise<void> {
   await setupSchema();
+  await setupGitSchema();
   await setupGraph();
 }

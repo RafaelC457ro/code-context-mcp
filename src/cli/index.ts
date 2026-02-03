@@ -9,6 +9,8 @@ import { collectFiles, scanDirectory } from '../parser/scanner.js';
 import { generateEmbedding, buildEmbeddingText } from '../embeddings/ollama.js';
 import { clearFileVertices, populateGraph, addVertex, addEdge, upsertFileVertex, getFileHash, deleteProjectGraph } from '../graph/operations.js';
 import { ProgressBar } from './progress.js';
+import { extractGitCommits, buildCommitEmbeddingText } from '../git/extractor.js';
+import { upsertGitCommit, getIndexedCommitHashes, deleteProjectGitCommits } from '../db/git-queries.js';
 import type { CodeNode, Relationship } from '../types.js';
 
 function sanitizeProjectName(name: string): string {
@@ -140,6 +142,67 @@ program
   });
 
 program
+  .command('index-git <directory>')
+  .description('Index git commit history for semantic search')
+  .option('--project <name>', 'Project name (defaults to directory basename)')
+  .option('--max-commits <n>', 'Maximum number of commits to index', '500')
+  .action(async (directory: string, opts: { project?: string; maxCommits?: string }) => {
+    const dir = resolve(directory);
+    const project = opts.project
+      ? sanitizeProjectName(opts.project)
+      : sanitizeProjectName(basename(dir));
+    const maxCommits = parseInt(opts.maxCommits ?? '500', 10);
+
+    console.log(`Indexing git history: ${dir}`);
+    console.log(`Project: ${project}`);
+
+    console.log('Setting up database schema...');
+    await setup();
+
+    // Get already-indexed commit hashes for incremental support
+    const indexed = await getIndexedCommitHashes(project);
+    console.log(`Already indexed: ${indexed.size} commits`);
+
+    // Extract commits from git
+    const allCommits = extractGitCommits(dir, project);
+    const newCommits = allCommits
+      .filter(c => !indexed.has(c.commitHash))
+      .slice(0, maxCommits);
+    const skippedCount = allCommits.length - newCommits.length;
+    console.log(`Found ${allCommits.length} total commits, ${newCommits.length} new to index`);
+
+    if (newCommits.length === 0) {
+      console.log('Nothing to index.');
+      await closePool();
+      return;
+    }
+
+    const progress = new ProgressBar(newCommits.length + skippedCount, 'commits');
+    for (let i = 0; i < skippedCount; i++) {
+      progress.incrementSkipped();
+    }
+
+    for (const commit of newCommits) {
+      try {
+        const text = buildCommitEmbeddingText(commit);
+        const embedding = await generateEmbedding(text);
+        await upsertGitCommit(
+          commit.commitHash, project, commit.author, commit.date,
+          commit.message, commit.filesChanged, commit.diffSummary, embedding
+        );
+        progress.addEmbeddings(1);
+      } catch (err) {
+        console.error(`\n  Failed to index commit ${commit.commitHash.substring(0, 7)}: ${err}`);
+      }
+      progress.incrementFiles();
+    }
+
+    progress.finish();
+
+    await closePool();
+  });
+
+program
   .command('delete <project-name>')
   .description('Delete all indexed data for a project')
   .option('--force', 'Required flag to confirm deletion')
@@ -172,12 +235,14 @@ program
 
     const embeddingsDeleted = await deleteProjectEmbeddings(project);
     const verticesDeleted = await deleteProjectGraph(project);
+    const gitCommitsDeleted = await deleteProjectGitCommits(project);
 
     console.log('');
     console.log('--- Deletion Summary ---');
     console.log(`Project: ${project}`);
     console.log(`Embeddings deleted: ${embeddingsDeleted}`);
     console.log(`Graph vertices deleted: ${verticesDeleted}`);
+    console.log(`Git commits deleted: ${gitCommitsDeleted}`);
 
     await closePool();
   });

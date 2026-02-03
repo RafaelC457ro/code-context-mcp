@@ -66,4 +66,19 @@ describe('ProgressBar', () => {
     expect(stats1.filesProcessed).toBe(1);
     expect(stats2.filesProcessed).toBe(2);
   });
+
+  it('accepts a custom label', () => {
+    const bar = new ProgressBar(10, 'commits');
+    const stats = bar.getStats();
+
+    expect(stats.totalFiles).toBe(10);
+    expect(stats.filesProcessed).toBe(0);
+  });
+
+  it('defaults label to files', () => {
+    const bar = new ProgressBar(10);
+    // Just verifying it constructs without error with default label
+    const stats = bar.getStats();
+    expect(stats.totalFiles).toBe(10);
+  });
 });

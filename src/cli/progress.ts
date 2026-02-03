@@ -7,8 +7,9 @@ const EMPTY = '\u2591';
 export class ProgressBar {
   private stats: ProgressStats;
   private isTTY: boolean;
+  private label: string;
 
-  constructor(totalFiles: number) {
+  constructor(totalFiles: number, label: string = 'files') {
     this.stats = {
       totalFiles,
       filesProcessed: 0,
@@ -17,6 +18,7 @@ export class ProgressBar {
       embeddingsGenerated: 0,
     };
     this.isTTY = process.stdout.isTTY ?? false;
+    this.label = label;
   }
 
   incrementFiles(): void {
@@ -47,7 +49,12 @@ export class ProgressBar {
     const empty = BAR_WIDTH - filled;
 
     const bar = FILLED.repeat(filled) + EMPTY.repeat(empty);
-    const line = `[${bar}] ${done}/${total} files | ${this.stats.nodesExtracted} nodes | ${this.stats.embeddingsGenerated} embeddings`;
+    const parts = [`[${bar}] ${done}/${total} ${this.label}`];
+    if (this.stats.nodesExtracted > 0) {
+      parts.push(`${this.stats.nodesExtracted} nodes`);
+    }
+    parts.push(`${this.stats.embeddingsGenerated} embeddings`);
+    const line = parts.join(' | ');
 
     if (this.isTTY) {
       process.stdout.write(`\r\x1b[K${line}`);
@@ -59,10 +66,13 @@ export class ProgressBar {
       process.stdout.write('\r\x1b[K');
     }
 
+    const capitalLabel = this.label.charAt(0).toUpperCase() + this.label.slice(1);
     console.log('\n--- Indexing Summary ---');
-    console.log(`Files processed: ${this.stats.filesProcessed}`);
-    console.log(`Files skipped (unchanged): ${this.stats.filesSkipped}`);
-    console.log(`Nodes extracted: ${this.stats.nodesExtracted}`);
+    console.log(`${capitalLabel} processed: ${this.stats.filesProcessed}`);
+    console.log(`${capitalLabel} skipped (unchanged): ${this.stats.filesSkipped}`);
+    if (this.stats.nodesExtracted > 0) {
+      console.log(`Nodes extracted: ${this.stats.nodesExtracted}`);
+    }
     console.log(`Embeddings generated: ${this.stats.embeddingsGenerated}`);
   }
 

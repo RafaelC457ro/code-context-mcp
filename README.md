@@ -60,6 +60,28 @@ The indexer will:
 
 Re-running the indexer on the same directory skips unchanged files (detected via content hash).
 
+### `index-git <directory>`
+
+Index git commit history for semantic search. Embeds commit messages and diffs so you can search commits by meaning.
+
+```bash
+# Index git history (project name auto-derived from directory basename)
+code-context-mcp index-git .
+
+# Override the project name
+code-context-mcp index-git . --project my-project
+
+# Limit the number of commits to index
+code-context-mcp index-git . --project my-project --max-commits 200
+```
+
+The indexer will:
+1. Extract commits from the git repository (hash, author, date, message, files changed, diff)
+2. Generate vector embeddings for each commit via Ollama
+3. Store commits in pgvector for semantic search
+
+Re-running the command skips already-indexed commits (incremental indexing).
+
 ### `delete <project-name>`
 
 Delete all indexed data for a project.
@@ -72,6 +94,7 @@ code-context-mcp delete my-project --force
 The delete command removes:
 - All embeddings for the project
 - All graph vertices for the project
+- All indexed git commits for the project
 
 **Warning:** This action cannot be undone.
 
@@ -80,6 +103,7 @@ The delete command removes:
 | Command | Arguments | Options | Description |
 |---------|-----------|---------|-------------|
 | `index` | `<directory>` | `--project <name>` | Index a codebase for semantic search |
+| `index-git` | `<directory>` | `--project <name>`, `--max-commits <n>` | Index git commit history for semantic search |
 | `delete` | `<project-name>` | `--force` | Delete all indexed data for a project |
 
 **Global Options:**
@@ -159,6 +183,16 @@ Analyze impact of changes to a file. Shows all external code that depends on def
 | `filePath` | string | yes | Relative path of the file (as indexed) |
 | `project` | string | no | Scope to a project |
 
+### `search_git_history`
+
+Semantic search across indexed git commit history. Finds commits by meaning of their messages and changes.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | yes | Natural language search query (e.g. "fix authentication bug") |
+| `limit` | number | no | Maximum results (default: 10) |
+| `project` | string | no | Scope search to a project |
+
 ## OpenCode Configuration
 
 Add an `opencode.json` file to your project root (or edit your existing one):
@@ -200,7 +234,7 @@ Add an `opencode.json` file to your project root (or edit your existing one):
 
 ### Unit Tests
 
-Unit tests run without Docker and cover extractors, scanner, registry, progress bar, embeddings, and DB queries.
+Unit tests run without Docker and cover extractors, scanner, registry, progress bar, embeddings, DB queries, git extractor, and git queries.
 
 ```bash
 npm test              # Run all unit tests

@@ -77,3 +77,24 @@ export interface ImpactResult {
     relationship: RelationshipKind;
   }>;
 }
+
+export interface GitCommit {
+  commitHash: string;
+  project: string;
+  author: string;
+  date: string;
+  message: string;
+  filesChanged: string;
+  diffSummary: string;
+}
+
+export interface GitCommitHit {
+  commitHash: string;
+  project: string;
+  author: string;
+  date: string;
+  message: string;
+  filesChanged: string;
+  diffSummary: string;
+  score: number;
+}
