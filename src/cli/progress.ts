@@ -1,8 +1,12 @@
 import type { ProgressStats } from '../types.js';
+import { COLORS, CURSOR, cyan, yellow, magenta, green, red, dim } from './colors.js';
 
 const BAR_WIDTH = 20;
 const FILLED = '\u2588';
 const EMPTY = '\u2591';
+
+// Spinner frames for animated progress
+const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 function formatTime(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -14,11 +18,51 @@ function formatTime(ms: number): string {
   return `${seconds}s`;
 }
 
+// Track if cursor is hidden globally to restore on exit
+let cursorHidden = false;
+
+function hideCursor(): void {
+  if (process.stdout.isTTY && !cursorHidden) {
+    process.stdout.write(CURSOR.hide);
+    cursorHidden = true;
+  }
+}
+
+function showCursor(): void {
+  if (cursorHidden) {
+    process.stdout.write(CURSOR.show);
+    cursorHidden = false;
+  }
+}
+
+// Register cleanup handlers
+function setupCleanup(): void {
+  const cleanup = () => {
+    showCursor();
+  };
+
+  process.on('exit', cleanup);
+  process.on('SIGINT', () => {
+    cleanup();
+    process.exit(130);
+  });
+  process.on('SIGTERM', () => {
+    cleanup();
+    process.exit(143);
+  });
+}
+
+// Initialize cleanup handlers
+setupCleanup();
+
 export class ProgressBar {
   private stats: ProgressStats;
   private isTTY: boolean;
   private label: string;
   private lastNonTTYPercent: number = 0;
+  private spinnerIndex: number = 0;
+  private spinnerInterval: ReturnType<typeof setInterval> | null = null;
+  private displayedLines: number = 0;
 
   constructor(totalFiles: number, label: string = 'files') {
     this.stats = {
@@ -31,6 +75,42 @@ export class ProgressBar {
     };
     this.isTTY = process.stdout.isTTY ?? false;
     this.label = label;
+
+    if (this.isTTY) {
+      hideCursor();
+      this.startSpinner();
+    }
+  }
+
+  private startSpinner(): void {
+    if (this.spinnerInterval) return;
+    this.spinnerInterval = setInterval(() => {
+      this.spinnerIndex = (this.spinnerIndex + 1) % SPINNER.length;
+      this.render();
+    }, 80);
+  }
+
+  private stopSpinner(): void {
+    if (this.spinnerInterval) {
+      clearInterval(this.spinnerInterval);
+      this.spinnerInterval = null;
+    }
+  }
+
+  private clearDisplay(): void {
+    if (!this.isTTY) return;
+
+    // Move to start of current line and clear
+    let clear = '\r\x1b[K';
+    // Clear any extra lines we displayed
+    for (let i = 0; i < this.displayedLines; i++) {
+      clear += '\x1b[1B\x1b[K'; // Move down and clear
+    }
+    // Move back up
+    for (let i = 0; i < this.displayedLines; i++) {
+      clear += '\x1b[1A';
+    }
+    process.stdout.write(clear + '\r\x1b[K');
   }
 
   setStage(stage: string, stageNumber?: number, totalStages?: number): void {
@@ -38,10 +118,14 @@ export class ProgressBar {
     this.stats.stageNumber = stageNumber;
     this.stats.totalStages = totalStages;
 
+    // Clear current display before printing stage
+    this.clearDisplay();
+    this.displayedLines = 0;
+
     if (stageNumber !== undefined && totalStages !== undefined) {
-      console.log(`\n[Stage ${stageNumber}/${totalStages}] ${stage}`);
+      console.log(`${cyan(`[Stage ${stageNumber}/${totalStages}]`)} ${stage}`);
     } else {
-      console.log(`\n${stage}`);
+      console.log(stage);
     }
   }
 
@@ -59,6 +143,7 @@ export class ProgressBar {
     this.stats.startTime = Date.now();
     this.stats.currentItem = undefined;
     this.lastNonTTYPercent = 0;
+    this.displayedLines = 0;
   }
 
   incrementFiles(): void {
@@ -81,6 +166,17 @@ export class ProgressBar {
     this.render();
   }
 
+  logError(message: string): void {
+    if (this.isTTY) {
+      // Clear current display, print error, then re-render
+      this.clearDisplay();
+      console.error(red(message));
+      this.render();
+    } else {
+      console.error(message);
+    }
+  }
+
   private render(): void {
     const done = this.stats.filesProcessed + this.stats.filesSkipped;
     const total = this.stats.totalFiles;
@@ -88,14 +184,17 @@ export class ProgressBar {
     const filled = Math.round(ratio * BAR_WIDTH);
     const empty = BAR_WIDTH - filled;
 
-    const bar = FILLED.repeat(filled) + EMPTY.repeat(empty);
-    const parts = [`[${bar}] ${done}/${total} ${this.label}`];
+    const spinner = SPINNER[this.spinnerIndex];
+    const barColored = `${COLORS.green}${FILLED.repeat(filled)}${COLORS.reset}${COLORS.dim}${EMPTY.repeat(empty)}${COLORS.reset}`;
+
+    // Build display parts
+    const parts: string[] = [`${spinner} [${barColored}] ${yellow(`${done}/${total}`)} ${this.label}`];
 
     if (this.stats.nodesExtracted > 0) {
-      parts.push(`${this.stats.nodesExtracted} nodes`);
+      parts.push(`${magenta(String(this.stats.nodesExtracted))} chunks`);
     }
     if (this.stats.embeddingsGenerated > 0) {
-      parts.push(`${this.stats.embeddingsGenerated} embeddings`);
+      parts.push(`${cyan(String(this.stats.embeddingsGenerated))} embeddings`);
     }
 
     const line = parts.join(' | ');
@@ -103,10 +202,12 @@ export class ProgressBar {
     if (this.isTTY) {
       // Build multi-line TTY display
       let display = `\r\x1b[K${line}`;
+      let extraLines = 0;
 
       // Add current item on next line if set
       if (this.stats.currentItem) {
-        display += `\n\x1b[KCurrently: ${this.stats.currentItem}`;
+        display += `\n\x1b[K${dim(`  → ${this.stats.currentItem}`)}`;
+        extraLines++;
       }
 
       // Add timing info
@@ -121,18 +222,19 @@ export class ProgressBar {
           const msPerItem = elapsed / processed;
           const eta = remaining * msPerItem;
           const etaStr = formatTime(eta);
-          display += `\n\x1b[KElapsed: ${elapsedStr} | Remaining: ~${etaStr}`;
+          display += `\n\x1b[K${dim(`  Elapsed: ${elapsedStr} | Remaining: ~${etaStr}`)}`;
         } else {
-          display += `\n\x1b[KElapsed: ${elapsedStr}`;
+          display += `\n\x1b[K${dim(`  Elapsed: ${elapsedStr}`)}`;
         }
+        extraLines++;
       }
 
       // Move cursor back up to the bar line for next update
-      const extraLines = (this.stats.currentItem ? 1 : 0) + (this.stats.startTime && done > 0 ? 1 : 0);
       if (extraLines > 0) {
         display += `\x1b[${extraLines}A`;
       }
 
+      this.displayedLines = extraLines;
       process.stdout.write(display);
     } else {
       // Non-TTY mode: print at milestones (25%, 50%, 75%, 100%)
@@ -147,17 +249,12 @@ export class ProgressBar {
   }
 
   finish(): void {
+    this.stopSpinner();
+
     if (this.isTTY) {
       // Clear the multi-line display
-      const extraLines = (this.stats.currentItem ? 1 : 0) + (this.stats.startTime ? 1 : 0);
-      let clear = '\r\x1b[K';
-      for (let i = 0; i < extraLines; i++) {
-        clear += '\n\x1b[K';
-      }
-      if (extraLines > 0) {
-        clear += `\x1b[${extraLines}A`;
-      }
-      process.stdout.write(clear + '\r\x1b[K');
+      this.clearDisplay();
+      showCursor();
     }
 
     const capitalLabel = this.label.charAt(0).toUpperCase() + this.label.slice(1);
@@ -166,17 +263,17 @@ export class ProgressBar {
     let timeStr = '';
     if (this.stats.startTime) {
       const elapsed = Date.now() - this.stats.startTime;
-      timeStr = ` (${formatTime(elapsed)})`;
+      timeStr = ` ${dim(`(${formatTime(elapsed)})`)}`;
     }
 
-    console.log('\n--- Indexing Summary ---');
-    console.log(`${capitalLabel} processed: ${this.stats.filesProcessed}${timeStr}`);
-    console.log(`${capitalLabel} skipped (unchanged): ${this.stats.filesSkipped}`);
+    console.log(green('--- Indexing Summary ---'));
+    console.log(`${capitalLabel} processed: ${yellow(String(this.stats.filesProcessed))}${timeStr}`);
+    console.log(`${capitalLabel} skipped (unchanged): ${dim(String(this.stats.filesSkipped))}`);
     if (this.stats.nodesExtracted > 0) {
-      console.log(`Nodes extracted: ${this.stats.nodesExtracted}`);
+      console.log(`Chunks indexed: ${magenta(String(this.stats.nodesExtracted))}`);
     }
     if (this.stats.embeddingsGenerated > 0) {
-      console.log(`Embeddings generated: ${this.stats.embeddingsGenerated}`);
+      console.log(`Embeddings generated: ${cyan(String(this.stats.embeddingsGenerated))}`);
     }
   }
 

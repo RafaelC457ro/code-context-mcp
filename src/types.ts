@@ -103,3 +103,12 @@ export interface GitCommitHit {
   diffSummary: string;
   score: number;
 }
+
+export interface TextChunk {
+  filePath: string;
+  chunkIndex: number;
+  totalChunks: number;
+  content: string;
+  startLine: number;
+  endLine: number;
+}

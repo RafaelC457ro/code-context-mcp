@@ -5,13 +5,15 @@ import { resolve, basename, extname } from 'path';
 import { setup, setupSchema, setupGitSchema, setupFileHashSchema, ensureProjectGraph, dropProjectGraph, listProjectGraphs, dropAllTables } from '../db/schema.js';
 import { closePool } from '../db/connection.js';
 import { updateEmbedding, deleteFileEmbeddings, deleteProjectEmbeddings, listProjects, getIndexedFileHashes, upsertFileHash, deleteProjectFileHashes } from '../db/queries.js';
-import { collectFiles, scanDirectory } from '../parser/scanner.js';
-import { generateEmbedding, buildEmbeddingText } from '../embeddings/ollama.js';
+import { collectFiles, scanDirectory, collectFilesWithContent } from '../parser/scanner.js';
+import { generateEmbedding, buildEmbeddingText, buildChunkEmbeddingText } from '../embeddings/ollama.js';
 import { clearFileVertices, addVertex, addEdge, upsertFileVertex, getFileHash } from '../graph/operations.js';
 import { ProgressBar } from './progress.js';
+import { showBanner } from './banner.js';
 import { extractGitCommits, buildCommitEmbeddingText } from '../git/extractor.js';
 import { upsertGitCommit, getIndexedCommitHashes, deleteProjectGitCommits } from '../db/git-queries.js';
-import type { CodeNode, Relationship } from '../types.js';
+import { chunkFile } from '../chunker/index.js';
+import type { CodeNode, Relationship, TextChunk } from '../types.js';
 
 function sanitizeProjectName(name: string): string {
   return name
@@ -38,6 +40,7 @@ program
       ? sanitizeProjectName(opts.project)
       : sanitizeProjectName(basename(dir));
 
+    showBanner();
     console.log(`Indexing: ${dir}`);
     console.log(`Project: ${project}`);
 
@@ -59,12 +62,12 @@ program
     const indexedHashes = await getIndexedFileHashes(project);
     console.log(`Already indexed: ${indexedHashes.size} files`);
 
-    const scanned = scanDirectory(dir, files);
+    const collected = collectFilesWithContent(dir, files);
 
     // Identify changed files
-    const changedFiles: typeof scanned = [];
-    const unchangedFiles: typeof scanned = [];
-    for (const file of scanned) {
+    const changedFiles: typeof collected = [];
+    const unchangedFiles: typeof collected = [];
+    for (const file of collected) {
       const existingHash = indexedHashes.get(file.relativePath);
       if (existingHash === file.hash) {
         unchangedFiles.push(file);
@@ -77,22 +80,12 @@ program
 
     if (changedFiles.length === 0) {
       console.log('Nothing to index.');
+      progress.finish();
       await closePool();
       return;
     }
 
-    // Cross-file dedup: remove header prototypes when a definition exists in a .c file.
-    const allNodes: CodeNode[] = [];
-    for (const file of scanned) {
-      allNodes.push(...file.extraction.nodes);
-    }
-    const definedFunctions = new Set(
-      allNodes
-        .filter(n => n.kind === 'function' && n.startLine !== n.endLine)
-        .map(n => n.name)
-    );
-
-    // Stage 3: Generate embeddings for changed files
+    // Stage 3: Generate embeddings for changed files using chunking
     progress.setStage('Generating embeddings', 3, 3);
     progress.reset(changedFiles.length + unchangedFiles.length);
 
@@ -101,32 +94,27 @@ program
       progress.incrementSkipped();
     }
 
-    // Process changed files and generate embeddings
+    // Process changed files: chunk and generate embeddings
     for (const file of changedFiles) {
       progress.setCurrentItem(file.relativePath);
 
       // Clear old embeddings for this file
       await deleteFileEmbeddings(file.relativePath, project);
 
-      // Filter out prototype nodes that have a definition elsewhere
-      const nodes = file.extraction.nodes.filter(n => {
-        if (n.kind === 'function' && n.startLine === n.endLine && definedFunctions.has(n.name)) {
-          return false; // Skip prototype when a multi-line definition exists
-        }
-        return true;
-      });
+      // Chunk the file content
+      const chunks = chunkFile(file.content, file.relativePath);
+      progress.addNodes(chunks.length);
 
-      progress.addNodes(nodes.length);
-
-      // Generate and store embeddings
-      for (const node of nodes) {
+      // Generate and store embeddings for each chunk
+      for (const chunk of chunks) {
         try {
-          const text = buildEmbeddingText(node.name, node.signature, node.body);
+          const text = buildChunkEmbeddingText(chunk);
           const embedding = await generateEmbedding(text);
-          await updateEmbedding(node.name, node.filePath, embedding, project);
+          const chunkName = `chunk_${chunk.chunkIndex}`;
+          await updateEmbedding(chunkName, chunk.filePath, embedding, project);
           progress.addEmbeddings(1);
         } catch (err) {
-          console.error(`\n    Failed to generate embedding for ${node.name}: ${err}`);
+          progress.logError(`Failed: ${file.relativePath} chunk ${chunk.chunkIndex}: ${err}`);
         }
       }
 

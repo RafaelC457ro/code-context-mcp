@@ -69,3 +69,35 @@ export function collectFiles(directory: string): string[] {
   walk(directory);
   return files;
 }
+
+export interface CollectedFile {
+  absolutePath: string;
+  relativePath: string;
+  hash: string;
+  content: string;
+}
+
+export function collectFilesWithContent(directory: string, fileList: string[]): CollectedFile[] {
+  const results: CollectedFile[] = [];
+
+  for (const filePath of fileList) {
+    const absolutePath = resolve(directory, filePath);
+    const relativePath = relative(directory, absolutePath);
+
+    try {
+      const content = readFileSync(absolutePath, 'utf-8');
+      const hash = createHash('sha256').update(content).digest('hex');
+
+      results.push({
+        absolutePath,
+        relativePath,
+        hash,
+        content,
+      });
+    } catch (err) {
+      console.error(`Failed to read ${relativePath}: ${err}`);
+    }
+  }
+
+  return results;
+}

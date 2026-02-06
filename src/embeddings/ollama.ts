@@ -16,7 +16,14 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   });
 
   if (!response.ok) {
-    throw new Error(`Ollama embedding request failed: ${response.status} ${response.statusText}`);
+    let errorDetail = '';
+    try {
+      const errorBody = await response.text();
+      errorDetail = ` - ${errorBody}`;
+    } catch {
+      // Ignore if we can't read the error body
+    }
+    throw new Error(`Ollama embedding request failed: ${response.status} ${response.statusText}${errorDetail}`);
   }
 
   const data = (await response.json()) as OllamaEmbeddingResponse;
@@ -39,4 +46,10 @@ export function buildEmbeddingText(name: string, signature: string, body: string
     : body;
 
   return `${name}\n${signature}\n${truncatedBody}`;
+}
+
+import type { TextChunk } from '../types.js';
+
+export function buildChunkEmbeddingText(chunk: TextChunk): string {
+  return `File: ${chunk.filePath}\nChunk: ${chunk.chunkIndex + 1} of ${chunk.totalChunks}\nLines: ${chunk.startLine}-${chunk.endLine}\n---\n${chunk.content}`;
 }
