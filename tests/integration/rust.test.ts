@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { setupTestDB, cleanupProject, closePool, fixtureDir } from './setup.js';
+import { setupTestDB, setupProjectGraph, cleanupProject, closePool, fixtureDir } from './setup.js';
 import { populateGraph, findNodeByName } from '../../src/graph/operations.js';
 import { updateEmbedding, searchByEmbedding } from '../../src/db/queries.js';
 import { generateEmbedding, buildEmbeddingText } from '../../src/embeddings/ollama.js';
@@ -13,6 +13,7 @@ describe('Rust (Integration)', () => {
   beforeAll(async () => {
     await setupTestDB();
     await cleanupProject(TEST_PROJECT);
+    await setupProjectGraph(TEST_PROJECT);
 
     const source = readFileSync(resolve(fixtureDir, 'sample.rs'), 'utf-8');
     const { nodes, relationships } = rustExtractor.extract('sample.rs', source);

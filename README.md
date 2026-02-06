@@ -38,7 +38,7 @@ The CLI is available as `code-context-mcp` (after global install) or via `node d
 
 ### `index <directory>`
 
-Index a codebase for semantic search and graph analysis.
+Index a codebase for semantic search (embeddings only).
 
 ```bash
 # Index a directory (project name auto-derived from directory basename)
@@ -54,11 +54,37 @@ code-context-mcp index /path/to/backend --project backend
 
 The indexer will:
 1. Parse all supported source files (TypeScript, Rust, Solidity, C) using tree-sitter
-2. Build a code graph with functions, classes, types, contracts, traits, and their relationships
-3. Generate vector embeddings for semantic search via Ollama
+2. Generate vector embeddings for semantic search via Ollama
+3. Store embeddings in pgvector
 4. Show a progress bar during indexing
 
-Re-running the indexer on the same directory skips unchanged files (detected via content hash).
+### `graph <directory>`
+
+Build code graph (vertices and edges) for a codebase. Each project gets its own isolated graph (`code_graph_{project}`).
+
+```bash
+# Build graph for a directory
+code-context-mcp graph ./src
+
+# Override the project name
+code-context-mcp graph ./src --project my-project
+```
+
+The graph builder will:
+1. Parse all supported source files using tree-sitter
+2. Create a project-specific graph in Apache AGE
+3. Build vertices for functions, classes, types, contracts, traits, etc.
+4. Create edges for CALLS, IMPORTS, EXTENDS, USES relationships
+5. Show a progress bar during graph building
+
+**Typical workflow:**
+```bash
+# First, create embeddings for semantic search
+code-context-mcp index ./my-project --project myproj
+
+# Then, build the graph for dependency analysis
+code-context-mcp graph ./my-project --project myproj
+```
 
 ### `index-git <directory>`
 
@@ -93,7 +119,7 @@ code-context-mcp delete my-project --force
 
 The delete command removes:
 - All embeddings for the project
-- All graph vertices for the project
+- The project-specific graph (`code_graph_{project}`)
 - All indexed git commits for the project
 
 **Warning:** This action cannot be undone.
@@ -102,7 +128,8 @@ The delete command removes:
 
 | Command | Arguments | Options | Description |
 |---------|-----------|---------|-------------|
-| `index` | `<directory>` | `--project <name>` | Index a codebase for semantic search |
+| `index` | `<directory>` | `--project <name>` | Index a codebase for semantic search (embeddings only) |
+| `graph` | `<directory>` | `--project <name>` | Build code graph for dependency analysis |
 | `index-git` | `<directory>` | `--project <name>`, `--max-commits <n>` | Index git commit history for semantic search |
 | `delete` | `<project-name>` | `--force` | Delete all indexed data for a project |
 
@@ -141,9 +168,11 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 ### `list_projects`
 
-List all indexed projects and their node counts.
+List all indexed projects, their node counts, and whether they have a graph.
 
 **Parameters:** none
+
+**Returns:** Array with `project`, `nodeCount`, and `hasGraph` fields.
 
 ### `search_code`
 
@@ -153,7 +182,7 @@ Semantic search across the indexed codebase. Finds functions, classes, types, an
 |-----------|------|----------|-------------|
 | `query` | string | yes | Natural language search query |
 | `limit` | number | no | Maximum results (default: 10) |
-| `project` | string | no | Scope search to a project |
+| `project` | string | no | Scope search to a project. Required for graph enrichment. |
 
 ### `get_call_stack`
 
@@ -163,7 +192,7 @@ Trace the call dependency tree from a function.
 |-----------|------|----------|-------------|
 | `functionName` | string | yes | Function to trace from |
 | `depth` | number | no | Max traversal depth, 1-10 (default: 3) |
-| `project` | string | no | Scope to a project |
+| `project` | string | **yes** | Project name (required for graph queries) |
 
 ### `get_function_context`
 
@@ -172,7 +201,7 @@ Gather full context for a function: callers, callees, types it uses.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `functionName` | string | yes | Function to get context for |
-| `project` | string | no | Scope to a project |
+| `project` | string | **yes** | Project name (required for graph queries) |
 
 ### `get_impact_analysis`
 
@@ -181,7 +210,7 @@ Analyze impact of changes to a file. Shows all external code that depends on def
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `filePath` | string | yes | Relative path of the file (as indexed) |
-| `project` | string | no | Scope to a project |
+| `project` | string | **yes** | Project name (required for graph queries) |
 
 ### `search_git_history`
 
@@ -192,6 +221,31 @@ Semantic search across indexed git commit history. Finds commits by meaning of t
 | `query` | string | yes | Natural language search query (e.g. "fix authentication bug") |
 | `limit` | number | no | Maximum results (default: 10) |
 | `project` | string | no | Scope search to a project |
+
+### `run_cypher`
+
+Execute a raw OpenCypher query against a project's code graph. Only read-only queries are allowed.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project` | string | yes | Project name |
+| `query` | string | yes | OpenCypher query (read-only) |
+
+**Example queries:**
+```cypher
+-- List all functions
+MATCH (f:Function) RETURN f.name, f.file_path LIMIT 10
+
+-- Find functions that call a specific function
+MATCH (caller:Function)-[:CALLS]->(f:Function {name: 'handleRequest'})
+RETURN caller.name, caller.file_path
+
+-- Find all types used by a function
+MATCH (f:Function {name: 'processData'})-[:USES]->(t:Type)
+RETURN t.name, t.file_path
+```
+
+See [docs/CYPHER_REFERENCE.md](docs/CYPHER_REFERENCE.md) for full schema and query examples.
 
 ## OpenCode Configuration
 

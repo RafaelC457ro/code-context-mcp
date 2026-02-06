@@ -38,7 +38,11 @@
       "Bash(npx code-context-mcp:*)",
       "mcp__code-context__get_call_stack",
       "Bash(npx tsx:*)",
-      "Bash(docker-compose:*)"
+      "Bash(docker-compose:*)",
+      "Bash(npx vitest:*)",
+      "Bash(for test in tests/integration/*.test.ts)",
+      "Bash(do echo \"Running $test\")",
+      "Bash(exit:*)"
     ]
   }
 }

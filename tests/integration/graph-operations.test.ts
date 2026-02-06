@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { setupTestDB, cleanupProject, closePool, fixtureDir } from './setup.js';
+import { setupTestDB, setupProjectGraph, cleanupProject, closePool, fixtureDir } from './setup.js';
 import {
   populateGraph,
   findNodeByName,
@@ -27,6 +27,7 @@ describe('Graph Operations (Integration)', () => {
   beforeAll(async () => {
     await setupTestDB();
     await cleanupProject(TEST_PROJECT);
+    await setupProjectGraph(TEST_PROJECT);
 
     // Index C fixture — has clear CALLS: main -> print_point, main -> add
     const cSource = readFileSync(resolve(fixtureDir, 'sample.c'), 'utf-8');

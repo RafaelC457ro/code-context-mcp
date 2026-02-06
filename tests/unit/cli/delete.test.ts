@@ -8,6 +8,9 @@ vi.mock('../../../src/db/connection.js', () => ({
 
 vi.mock('../../../src/db/schema.js', () => ({
   setup: vi.fn(),
+  setupSchema: vi.fn(),
+  setupGitSchema: vi.fn(),
+  dropProjectGraph: vi.fn(),
 }));
 
 vi.mock('../../../src/db/queries.js', () => ({
@@ -17,12 +20,18 @@ vi.mock('../../../src/db/queries.js', () => ({
   deleteFileEmbeddings: vi.fn(),
 }));
 
+vi.mock('../../../src/db/git-queries.js', () => ({
+  deleteProjectGitCommits: vi.fn(),
+}));
+
 vi.mock('../../../src/graph/operations.js', () => ({
   deleteProjectGraph: vi.fn(),
   clearFileVertices: vi.fn(),
   populateGraph: vi.fn(),
   upsertFileVertex: vi.fn(),
   getFileHash: vi.fn(),
+  addVertex: vi.fn(),
+  addEdge: vi.fn(),
 }));
 
 vi.mock('../../../src/parser/scanner.js', () => ({
@@ -47,8 +56,8 @@ vi.mock('../../../src/cli/progress.js', () => ({
 }));
 
 import { deleteProjectEmbeddings, listProjects } from '../../../src/db/queries.js';
-import { deleteProjectGraph } from '../../../src/graph/operations.js';
-import { setup } from '../../../src/db/schema.js';
+import { deleteProjectGitCommits } from '../../../src/db/git-queries.js';
+import { setupSchema, setupGitSchema, dropProjectGraph } from '../../../src/db/schema.js';
 import { closePool } from '../../../src/db/connection.js';
 import { Command } from 'commander';
 
@@ -82,9 +91,11 @@ function createDeleteCommand(): Command {
         throw new Error(`Project "${project}" not found.`);
       }
 
-      await (setup as ReturnType<typeof vi.fn>)();
+      await (setupSchema as ReturnType<typeof vi.fn>)();
+      await (setupGitSchema as ReturnType<typeof vi.fn>)();
       await (deleteProjectEmbeddings as ReturnType<typeof vi.fn>)(project);
-      await (deleteProjectGraph as ReturnType<typeof vi.fn>)(project);
+      await (deleteProjectGitCommits as ReturnType<typeof vi.fn>)(project);
+      await (dropProjectGraph as ReturnType<typeof vi.fn>)(project);
       await (closePool as ReturnType<typeof vi.fn>)();
     });
 
@@ -101,13 +112,15 @@ describe('Delete Command', () => {
       { project: 'my-app', nodeCount: 42 },
     ]);
     (deleteProjectEmbeddings as ReturnType<typeof vi.fn>).mockResolvedValueOnce(42);
-    (deleteProjectGraph as ReturnType<typeof vi.fn>).mockResolvedValueOnce(30);
+    (deleteProjectGitCommits as ReturnType<typeof vi.fn>).mockResolvedValueOnce(5);
+    (dropProjectGraph as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
 
     const program = createDeleteCommand();
     await program.parseAsync(['node', 'cli', 'delete', 'my-app', '--force']);
 
     expect(deleteProjectEmbeddings).toHaveBeenCalledWith('my-app');
-    expect(deleteProjectGraph).toHaveBeenCalledWith('my-app');
+    expect(deleteProjectGitCommits).toHaveBeenCalledWith('my-app');
+    expect(dropProjectGraph).toHaveBeenCalledWith('my-app');
     expect(closePool).toHaveBeenCalled();
   });
 
@@ -136,12 +149,13 @@ describe('Delete Command', () => {
       { project: 'my-app', nodeCount: 42 },
     ]);
     (deleteProjectEmbeddings as ReturnType<typeof vi.fn>).mockResolvedValueOnce(0);
-    (deleteProjectGraph as ReturnType<typeof vi.fn>).mockResolvedValueOnce(0);
+    (deleteProjectGitCommits as ReturnType<typeof vi.fn>).mockResolvedValueOnce(0);
+    (dropProjectGraph as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
 
     const program = createDeleteCommand();
     await program.parseAsync(['node', 'cli', 'delete', 'My App!', '--force']);
 
     expect(deleteProjectEmbeddings).toHaveBeenCalledWith('my-app');
-    expect(deleteProjectGraph).toHaveBeenCalledWith('my-app');
+    expect(dropProjectGraph).toHaveBeenCalledWith('my-app');
   });
 });

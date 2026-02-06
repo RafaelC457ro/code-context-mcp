@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { setupTestDB, cleanupProject, closePool, fixtureDir } from './setup.js';
+import { setupTestDB, setupProjectGraph, cleanupProject, closePool, fixtureDir } from './setup.js';
 import { collectFiles, scanDirectory } from '../../src/parser/scanner.js';
 import { populateGraph } from '../../src/graph/operations.js';
 import { updateEmbedding, searchByEmbedding } from '../../src/db/queries.js';
@@ -12,6 +12,7 @@ describe('Indexing Pipeline (Integration)', () => {
   beforeAll(async () => {
     await setupTestDB();
     await cleanupProject(TEST_PROJECT);
+    await setupProjectGraph(TEST_PROJECT);
   });
 
   afterAll(async () => {

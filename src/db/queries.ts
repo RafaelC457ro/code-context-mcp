@@ -71,3 +71,35 @@ export async function listProjects(): Promise<Array<{ project: string; nodeCount
     nodeCount: parseInt(row.node_count as string, 10),
   }));
 }
+
+export async function getIndexedFileHashes(project: string): Promise<Map<string, string>> {
+  const pool = getPool();
+  const result = await pool.query(
+    `SELECT file_path, hash FROM public.file_hashes WHERE project = $1`,
+    [project]
+  );
+  const map = new Map<string, string>();
+  for (const row of result.rows as Array<{ file_path: string; hash: string }>) {
+    map.set(row.file_path, row.hash);
+  }
+  return map;
+}
+
+export async function upsertFileHash(filePath: string, hash: string, project: string): Promise<void> {
+  const pool = getPool();
+  await pool.query(
+    `INSERT INTO public.file_hashes (file_path, project, hash, last_indexed)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (project, file_path) DO UPDATE SET hash = $3, last_indexed = NOW()`,
+    [filePath, project, hash]
+  );
+}
+
+export async function deleteProjectFileHashes(project: string): Promise<number> {
+  const pool = getPool();
+  const result = await pool.query(
+    'DELETE FROM public.file_hashes WHERE project = $1',
+    [project]
+  );
+  return result.rowCount ?? 0;
+}

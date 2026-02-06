@@ -49,6 +49,11 @@ export interface ProgressStats {
   filesSkipped: number;
   nodesExtracted: number;
   embeddingsGenerated: number;
+  stage?: string;
+  stageNumber?: number;
+  totalStages?: number;
+  currentItem?: string;
+  startTime?: number;
 }
 
 export interface CallStackEntry {

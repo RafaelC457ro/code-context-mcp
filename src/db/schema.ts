@@ -117,8 +117,121 @@ export async function setupGitSchema(): Promise<void> {
   `);
 }
 
+export async function setupFileHashSchema(): Promise<void> {
+  const pool = getPool();
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.file_hashes (
+      id SERIAL PRIMARY KEY,
+      file_path TEXT NOT NULL,
+      project TEXT NOT NULL,
+      hash TEXT NOT NULL,
+      last_indexed TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      UNIQUE(project, file_path)
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_file_hashes_project ON public.file_hashes (project);
+  `);
+}
+
 export async function setup(): Promise<void> {
   await setupSchema();
   await setupGitSchema();
+  await setupFileHashSchema();
   await setupGraph();
+}
+
+// Project-specific graph functions
+
+function getGraphNameForProject(projectName: string): string {
+  return `code_graph_${projectName}`;
+}
+
+const VERTEX_LABELS = ['Function', 'Class', 'Type', 'File', 'Struct', 'Enum', 'Trait', 'Impl', 'Module', 'Contract', 'Event', 'Modifier'];
+const EDGE_LABELS = ['CALLS', 'IMPORTS', 'EXTENDS', 'USES', 'RETURNS', 'DEFINED_IN', 'IMPLEMENTS'];
+
+export async function ensureProjectGraph(projectName: string): Promise<void> {
+  const pool = getPool();
+  const graphName = getGraphNameForProject(projectName);
+
+  // Load AGE extension and set search path
+  await pool.query(`LOAD 'age';`);
+  await pool.query(`SET search_path = ag_catalog, "$user", public;`);
+
+  // Create graph if it doesn't exist
+  const graphExists = await pool.query(`
+    SELECT * FROM ag_catalog.ag_graph WHERE name = $1;
+  `, [graphName]);
+
+  if (graphExists.rows.length === 0) {
+    await pool.query(`SELECT create_graph($1);`, [graphName]);
+  }
+
+  // Create vertex labels
+  for (const label of VERTEX_LABELS) {
+    const exists = await pool.query(`
+      SELECT * FROM ag_catalog.ag_label
+      WHERE name = $1 AND graph = (SELECT graphid FROM ag_catalog.ag_graph WHERE name = $2);
+    `, [label, graphName]);
+    if (exists.rows.length === 0) {
+      await pool.query(`SELECT create_vlabel($1, $2);`, [graphName, label]);
+    }
+  }
+
+  // Create edge labels
+  for (const label of EDGE_LABELS) {
+    const exists = await pool.query(`
+      SELECT * FROM ag_catalog.ag_label
+      WHERE name = $1 AND graph = (SELECT graphid FROM ag_catalog.ag_graph WHERE name = $2);
+    `, [label, graphName]);
+    if (exists.rows.length === 0) {
+      await pool.query(`SELECT create_elabel($1, $2);`, [graphName, label]);
+    }
+  }
+}
+
+export async function dropProjectGraph(projectName: string): Promise<void> {
+  const pool = getPool();
+  const graphName = getGraphNameForProject(projectName);
+
+  // Load AGE extension
+  await pool.query(`LOAD 'age';`);
+  await pool.query(`SET search_path = ag_catalog, "$user", public;`);
+
+  // Check if graph exists
+  const graphExists = await pool.query(`
+    SELECT * FROM ag_catalog.ag_graph WHERE name = $1;
+  `, [graphName]);
+
+  if (graphExists.rows.length > 0) {
+    // Drop graph with cascade (removes all vertices and edges)
+    await pool.query(`SELECT drop_graph($1, true);`, [graphName]);
+  }
+}
+
+export async function listProjectGraphs(): Promise<string[]> {
+  const pool = getPool();
+
+  // Load AGE extension
+  await pool.query(`LOAD 'age';`);
+  await pool.query(`SET search_path = ag_catalog, "$user", public;`);
+
+  // Find all graphs matching our naming convention
+  const result = await pool.query(`
+    SELECT name FROM ag_catalog.ag_graph WHERE name LIKE 'code_graph_%';
+  `);
+
+  // Extract project names from graph names
+  return result.rows.map((row: { name: string }) =>
+    row.name.replace(/^code_graph_/, '')
+  );
+}
+
+export async function dropAllTables(): Promise<void> {
+  const pool = getPool();
+  await pool.query(`DROP TABLE IF EXISTS public.embeddings;`);
+  await pool.query(`DROP TABLE IF EXISTS public.git_commits;`);
+  await pool.query(`DROP TABLE IF EXISTS public.file_hashes;`);
 }

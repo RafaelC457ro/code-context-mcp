@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 import { getPool, closePool } from '../../src/db/connection.js';
-import { setup } from '../../src/db/schema.js';
+import { setup, ensureProjectGraph, dropProjectGraph } from '../../src/db/schema.js';
 
 // Set test environment variables
 process.env.PGPORT = '5434';
@@ -16,22 +16,19 @@ export async function setupTestDB(): Promise<void> {
   await setup();
 }
 
+export async function setupProjectGraph(project: string): Promise<void> {
+  await ensureProjectGraph(project);
+}
+
 export async function cleanupProject(project: string): Promise<void> {
   const pool = getPool();
 
   // Clean embeddings
   await pool.query('DELETE FROM embeddings WHERE project = $1', [project]);
 
-  // Clean graph vertices and edges for this project
+  // Drop the project-specific graph
   try {
-    await pool.query(`LOAD 'age';`);
-    await pool.query(`SET search_path = ag_catalog, "$user", public;`);
-    await pool.query(
-      `SELECT * FROM cypher('code_graph', $$ MATCH (n {project: '${project}'})-[r]-() DELETE r $$) AS (result agtype);`
-    );
-    await pool.query(
-      `SELECT * FROM cypher('code_graph', $$ MATCH (n {project: '${project}'}) DELETE n $$) AS (result agtype);`
-    );
+    await dropProjectGraph(project);
   } catch {
     // Graph may not exist yet
   }
